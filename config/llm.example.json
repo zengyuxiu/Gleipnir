@@ -1,0 +1,6 @@
+{
+  "model": "gpt-4o-mini",
+  "apiKey": "sk-your-api-key",
+  "host": "https://api.openai.com",
+  "apiPath": "/v1"
+}

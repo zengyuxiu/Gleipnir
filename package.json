@@ -1,0 +1,25 @@
+{
+  "name": "gleipnir",
+  "private": true,
+  "scripts": {
+    "dev": "bun --hot src/index.ts",
+    "start": "bun src/index.ts",
+    "log-rag:ingest": "bun script/log-rag.ts ingest",
+    "log-rag:search": "bun script/log-rag.ts search",
+    "typecheck": "bunx tsc --noEmit",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@ai-sdk/openai": "^3.0.41",
+    "ai": "^6.0.116",
+    "dotenv": "^17.3.1",
+    "hono": "^4.12.8",
+    "zod": "^4.3.6"
+  }
+}

@@ -1,271 +1,57 @@
-# AgentSight Agent Tool Quick Start Template
+# Documentation Index
 
-This is a minimal template for building an AI agent tool with Hono and Vercel AI SDK that integrates with AgentSight.
+这份索引用来区分“当前实现文档”和“背景参考文档”，方便继续开发时快速定位信息。
 
-## Quick Start
+## 建议优先阅读
 
-```bash
-# 1. Copy this template
-cp -r docs/agent-tool-template ./my-agent-tool
-cd my-agent-tool
+### 1. 项目现状与开发入口
 
-# 2. Install dependencies
-npm install
+- [../README.md](../README.md)
+  - 英文主 README，包含仓库概览、当前能力、运行方式和下一步开发建议
+- [../README.zh-CN.md](../README.zh-CN.md)
+  - 中文辅助 README，便于中文语境下快速浏览当前能力边界
 
-# 3. Set environment variables
-export AGENTSIGHT_URL=http://localhost:7395
-export OPENAI_API_KEY=your-api-key
+### 2. Agent 架构
 
-# 4. Start development server
-npm run dev
-```
+- [react-agent-architecture.md](./react-agent-architecture.md)
+  - 当前 agent 运行方式
+  - `general` / `packet-analysis` 两种 profile 的职责边界
+  - 新增 agent / tool 时的设计约束
 
-## Project Structure
+### 3. Tool 与控制面契约
 
-```
-my-agent-tool/
-├── src/
-│   ├── index.ts          # Main application
-│   ├── types.ts          # TypeScript types
-│   └── client.ts         # AgentSight client
-├── package.json
-├── tsconfig.json
-└── Dockerfile
-```
+- [tool-api.md](./tool-api.md)
+  - AgentGuardian 当前能力总结
+  - `status / validate / reload` 的 HTTP/JSON 契约
+  - 适合上层 tool 封装与平台接入
 
-## Files
+### 4. 日志证据检索
 
-### package.json
+- [log-rag.md](./log-rag.md)
+  - Log RAG 的数据流、schema、CLI、HTTP API、agent 集成方式
 
-```json
-{
-  "name": "agentsight-agent-tool",
-  "version": "1.0.0",
-  "type": "module",
-  "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "build": "tsc",
-    "start": "node dist/index.js"
-  },
-  "dependencies": {
-    "@hono/node-server": "^1.8.0",
-    "@ai-sdk/openai": "^0.0.40",
-    "ai": "^3.0.0",
-    "hono": "^4.0.0",
-    "zod": "^3.22.0"
-  },
-  "devDependencies": {
-    "@types/node": "^20.0.0",
-    "tsx": "^4.7.0",
-    "typescript": "^5.0.0"
-  }
-}
-```
+### 5. 安全控制闭环
 
-### src/types.ts
+- [security-audit-control-loop.md](./security-audit-control-loop.md)
+  - 当前能力与目标架构差距
+  - 生产化控制闭环建议
+  - 分阶段上线方案
 
-```typescript
-export interface AgentEvent {
-  timestamp: number;
-  source: 'ssl' | 'process' | 'system' | 'http' | 'stdio';
-  pid: number;
-  comm: string;
-  data: Record<string, unknown>;
-}
+## 专题参考
 
-export interface HttpEvent extends AgentEvent {
-  source: 'http';
-  data: {
-    type: 'request' | 'response';
-    method?: string;
-    path?: string;
-    status_code?: number;
-    headers: Record<string, string>;
-    body?: string;
-  };
-}
-```
+- [sse-processor.md](./sse-processor.md)
+  - SSE 归并逻辑背景说明
+  - 有助于理解为什么流式事件最终要整理为可审计证据
 
-### src/client.ts
+## 历史/背景文档
 
-```typescript
-import type { AgentEvent, HttpEvent } from './types';
+- [agent-tool-development.md](./agent-tool-development.md)
+  - 更偏早期 AgentSight agent tool 模板和背景知识
+  - 对理解 AgentSight 所在生态有帮助，但不是当前仓库的最准实现说明
 
-export class AgentSightClient {
-  private baseUrl: string;
+## 继续开发时的推荐顺序
 
-  constructor(baseUrl: string = process.env.AGENTSIGHT_URL || 'http://localhost:7395') {
-    this.baseUrl = baseUrl;
-  }
-
-  async getEvents(): Promise<AgentEvent[]> {
-    const response = await fetch(`${this.baseUrl}/api/events`);
-    const text = await response.text();
-
-    const events: AgentEvent[] = [];
-    for (const line of text.split('\n')) {
-      if (line.trim()) {
-        try {
-          events.push(JSON.parse(line));
-        } catch {}
-      }
-    }
-    return events;
-  }
-
-  async getHttpEvents(): Promise<HttpEvent[]> {
-    const events = await this.getEvents();
-    return events.filter(
-      (e): e is HttpEvent => e.source === 'http' || !!e.data?.type
-    );
-  }
-}
-```
-
-### src/index.ts
-
-```typescript
-import { Hono } from 'hono';
-import { cors } from 'hono/cors';
-import { generateText, tool } from 'ai';
-import { openai } from '@ai-sdk/openai';
-import { z } from 'zod';
-import { AgentSightClient } from './client';
-
-const app = new Hono();
-app.use('/*', cors());
-
-const client = new AgentSightClient();
-
-// Define AI tool
-const getHttpTrafficTool = tool({
-  description: 'Get HTTP traffic from monitored AI agents',
-  parameters: z.object({
-    method: z.string().optional(),
-    limit: z.number().optional().default(50),
-  }),
-  execute: async ({ method, limit }) => {
-    const events = await client.getHttpEvents();
-    let filtered = events;
-    if (method) {
-      filtered = filtered.filter(e => e.data.method === method);
-    }
-    return filtered.slice(0, limit);
-  },
-});
-
-// REST endpoints
-app.get('/health', (c) => c.json({ status: 'ok' }));
-
-app.get('/api/events', async (c) => {
-  const events = await client.getEvents();
-  return c.json(events);
-});
-
-app.get('/api/http', async (c) => {
-  const events = await client.getHttpEvents();
-  return c.json(events);
-});
-
-// AI analysis endpoint
-app.post('/api/analyze', async (c) => {
-  const { query } = await c.req.json();
-
-  const result = await generateText({
-    model: openai('gpt-4'),
-    prompt: query,
-    tools: { getHttpTraffic: getHttpTrafficTool },
-    maxSteps: 3,
-  });
-
-  return c.json({ result: result.text });
-});
-
-export default app;
-```
-
-## Docker Deployment
-
-### Dockerfile
-
-```dockerfile
-FROM node:20-alpine
-
-WORKDIR /app
-
-COPY package*.json ./
-RUN npm ci --only=production
-
-COPY . .
-RUN npm run build
-
-EXPOSE 3000
-CMD ["node", "dist/index.js"]
-```
-
-### docker-compose.yml
-
-```yaml
-version: '3.8'
-
-services:
-  agentsight:
-    image: agentsight:latest
-    privileged: true
-    volumes:
-      - /sys/kernel/debug:/sys/kernel/debug:ro
-      - /proc:/proc:ro
-    ports:
-      - "7395:7395"
-    command: ./collector/target/release/agentsight record -c claude --server
-
-  agent-tool:
-    build: .
-    ports:
-      - "3000:3000"
-    environment:
-      - AGENTSIGHT_URL=http://agentsight:7395
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-    depends_on:
-      - agentsight
-```
-
-## Usage Examples
-
-### Get all events
-
-```bash
-curl http://localhost:3000/api/events
-```
-
-### Get HTTP traffic
-
-```bash
-curl http://localhost:3000/api/http
-```
-
-### AI analysis
-
-```bash
-curl -X POST http://localhost:3000/api/analyze \
-  -H "Content-Type: application/json" \
-  -d '{"query": "What API endpoints has the agent called?"}'
-```
-
-### From JavaScript/TypeScript
-
-```typescript
-// Get events
-const response = await fetch('http://localhost:3000/api/events');
-const events = await response.json();
-
-// AI analysis
-const analysis = await fetch('http://localhost:3000/api/analyze', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    query: 'Analyze the agent API usage patterns'
-  })
-});
-const result = await analysis.json();
-```
+1. 先读 [../README.md](../README.md)，确认当前已实现边界。
+2. 再读 [react-agent-architecture.md](./react-agent-architecture.md) 和 [tool-api.md](./tool-api.md)，确定 agent/tool 层怎么扩展。
+3. 如果要做日志检索或证据回放，继续看 [log-rag.md](./log-rag.md)。
+4. 如果要推进自动化安全闭环，再看 [security-audit-control-loop.md](./security-audit-control-loop.md)。
